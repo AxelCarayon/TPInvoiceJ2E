@@ -7,8 +7,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.sql.DataSource;
 
 public class DAO {
@@ -76,9 +74,70 @@ public class DAO {
 	 * taille
 	 * @throws java.lang.Exception si la transaction a échoué
 	 */
-	public void createInvoice(CustomerEntity customer, int[] productIDs, int[] quantities)
-		throws Exception {
-		throw new UnsupportedOperationException("Pas encore implémenté");
+	public void createInvoice(CustomerEntity customer, int[] productIDs, int[] quantities) throws Exception {  
+            String sql1 = "INSERT INTO Invoice(CustomerID) VALUES ? "; //Facture
+            String sql2 = "INSERT INTO Item(InvoiceID, Item, ProductID, Quantity, Cost) VALUES (?,?,?,?,?) "; //Objet facturé
+            String sql3 = "SELECT Price AS PRIX FROM Product WHERE ID = ?"; //Prix de l'item
+            
+             try (Connection myConnection = myDataSource.getConnection();
+                  PreparedStatement statement1 = myConnection.prepareStatement(sql1, Statement.RETURN_GENERATED_KEYS);
+                    PreparedStatement statement2 = myConnection.prepareStatement(sql2);
+                    PreparedStatement statement3 = myConnection.prepareStatement(sql3)) {           
+            
+                myConnection.setAutoCommit(false); //On passe en mode transaction donc on désactive l'autocommit pour pouvoir rollback
+                try {
+                    statement1.setInt(1, customer.getCustomerId());
+                    int numberUpdated1 = statement1.executeUpdate();
+                    
+                    if (numberUpdated1 == 0) { //la requête n'as rien donné.                        
+                        throw new SQLException("Aucune valeur insérée ");
+                    }
+ 
+                    ResultSet clefs = statement1.getGeneratedKeys(); //ResultSet car on peut avoir plusieures clefs. 
+
+                    clefs.next(); // On lit la première clef générée
+                    int invoiceID = clefs.getInt(1);
+                    System.out.println("Première clef : " + invoiceID);
+
+                    
+                    // Table Item (InvoiceID, Item, ProductID, Quantity, Cost)             
+                    for(int i = 0 ; i < productIDs.length ; i++) {
+                        int idProduit = productIDs[i];
+                        
+                        statement2.setInt(1, invoiceID);
+                        statement2.setInt(2, i);  //clef
+                        statement2.setInt(3, idProduit);
+                        statement2.setInt(4, quantities[i]);
+                        
+                        //Récupération du prix du produit
+                        statement3.setInt(1, idProduit);
+                        float prix = 0f;
+                        
+                        try (ResultSet resultSet = statement3.executeQuery()) {
+				if (resultSet.next()) {
+                                    prix = resultSet.getFloat("PRIX");
+				}
+			}
+                        
+                        statement2.setFloat(5, prix);
+                     
+                        //Execution requête SQL2
+                        int numberUpdated2 = statement2.executeUpdate();
+                        if (numberUpdated2 == 0) //pas de modif
+                        {
+                            throw new SQLException("Aucune valeur insérée");
+                        }
+                    }
+                    
+                    myConnection.commit(); //On est arrivé au bout sans erreur, on commit
+                } catch (SQLException e) {
+                    myConnection.rollback(); // rollback car erreur
+                    throw e;
+                    
+                } finally {
+                    myConnection.setAutoCommit(true); //fin de la transaction
+                }
+            }
 	}
 
 	/**
@@ -171,7 +230,6 @@ public class DAO {
 				}
 			}
 		}
-
 		return result;
 	}
 }
